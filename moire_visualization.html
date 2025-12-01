@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>六边形摩尔纹可视化 (Hexagonal Moiré Pattern Visualizer)</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f2f5;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .controls {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 20px;
+            align-items: center;
+            justify-content: center;
+            max-width: 800px;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        label {
+            font-size: 0.9em;
+            color: #666;
+            font-weight: 600;
+        }
+        input[type="range"] {
+            width: 200px;
+        }
+        input[type="number"] {
+            width: 80px;
+            padding: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .canvas-container {
+            position: relative;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            background: white;
+        }
+        canvas {
+            display: block;
+            background-color: white;
+        }
+        .info {
+            margin-top: 10px;
+            color: #555;
+            font-size: 0.9em;
+        }
+        .legend {
+            display: flex;
+            gap: 15px;
+            margin-top: 5px;
+            font-size: 0.85em;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>六边形摩尔纹可视化</h1>
+
+    <div class="controls">
+        <div class="control-group">
+            <label for="angle">旋转角度 (θ): <span id="angleVal">0.00</span>°</label>
+            <input type="range" id="angle" min="0" max="360" step="0.1" value="5" style="width: 300px;">
+        </div>
+
+        <div class="control-group">
+            <label for="a1">底层晶格常数 (a1):</label>
+            <input type="number" id="a1" value="10" min="2" max="50" step="0.5">
+        </div>
+
+        <div class="control-group">
+            <label for="a2">顶层晶格常数 (a2):</label>
+            <input type="number" id="a2" value="10" min="2" max="50" step="0.5">
+        </div>
+        
+        <div class="control-group">
+            <label>显示模式:</label>
+            <div style="display: flex; gap: 10px;">
+                <label><input type="radio" name="mode" value="hex" checked> 六边形</label>
+                <label><input type="radio" name="mode" value="dot"> 点阵</label>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>动画:</label>
+            <button id="animBtn" style="padding: 5px 15px; cursor: pointer; background-color: #3b82f6; color: white; border: none; border-radius: 4px;">开始旋转</button>
+        </div>
+
+        <div class="control-group" style="border-top: 1px solid #eee; padding-top: 10px; width: 100%;">
+            <label style="color: #333; font-size: 1em;">摩尔晶格参数:</label>
+            <div style="font-family: monospace; color: #000; font-size: 1.1em; margin-top: 5px;">
+                λ = <span id="moirePeriod">--</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item"><div class="dot" style="background: #3b82f6;"></div> 底层 (固定)</div>
+        <div class="legend-item"><div class="dot" style="background: #ef4444;"></div> 顶层 (旋转)</div>
+        <div class="legend-item"><div class="dot" style="background: #000; border-radius: 0; width: 15px; height: 2px;"></div> 摩尔周期向量</div>
+    </div>
+
+    <div class="canvas-container">
+        <canvas id="moireCanvas" width="600" height="600"></canvas>
+    </div>
+
+    <div class="info">
+        提示：调整角度或晶格常数以观察摩尔条纹的变化。当角度很小或晶格常数接近时，摩尔周期变大。
+    </div>
+
+    <script>
+        const canvas = document.getElementById('moireCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        const angleInput = document.getElementById('angle');
+        const angleVal = document.getElementById('angleVal');
+        const a1Input = document.getElementById('a1');
+        const a2Input = document.getElementById('a2');
+        const moirePeriodDisplay = document.getElementById('moirePeriod');
+        const modeInputs = document.getElementsByName('mode');
+
+        let width = canvas.width;
+        let height = canvas.height;
+        let centerX = width / 2;
+        let centerY = height / 2;
+
+        function drawHexagon(x, y, radius, color, strokeWidth = 1) {
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) {
+                const angle_deg = 60 * i - 30;
+                const angle_rad = Math.PI / 180 * angle_deg;
+                const px = x + radius * Math.cos(angle_rad);
+                const py = y + radius * Math.sin(angle_rad);
+                if (i === 0) {
+                    ctx.moveTo(px, py);
+                } else {
+                    ctx.lineTo(px, py);
+                }
+            }
+            ctx.closePath();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = strokeWidth;
+            ctx.stroke();
+        }
+
+        function drawLine(x1, y1, x2, y2, color, width=2) {
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = width;
+            ctx.stroke();
+        }
+
+        function drawDot(x, y, radius, color) {
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+        }
+
+        // 计算倒格子基矢
+        function getReciprocalBasis(a, rotationDeg) {
+            const theta = rotationDeg * Math.PI / 180;
+            const cos = Math.cos(theta);
+            const sin = Math.sin(theta);
+
+            // 实空间基矢 (旋转后)
+            // a1 = (a, 0) rotated
+            const a1x = a * cos;
+            const a1y = a * sin;
+            // a2 = (a/2, a*sqrt(3)/2) rotated
+            const a2x_raw = a * 0.5;
+            const a2y_raw = a * Math.sqrt(3) / 2;
+            const a2x = a2x_raw * cos - a2y_raw * sin;
+            const a2y = a2x_raw * sin + a2y_raw * cos;
+
+            // 倒格子基矢公式 b_i * a_j = 2pi * delta_ij
+            // 2D计算: b1 垂直于 a2, b2 垂直于 a1
+            // Area = |a1 x a2|
+            const area = a1x * a2y - a1y * a2x;
+            const factor = 2 * Math.PI / area;
+
+            const b1x = factor * a2y;
+            const b1y = factor * (-a2x);
+            
+            const b2x = factor * (-a1y);
+            const b2y = factor * a1x;
+
+            return { b1: {x: b1x, y: b1y}, b2: {x: b2x, y: b2y} };
+        }
+
+        function generateLatticePoints(a, rotationDeg) {
+            const points = [];
+            const theta = rotationDeg * Math.PI / 180;
+            
+            // 覆盖画布所需的范围
+            // 简单的估算：从中心向外扩展
+            const maxDist = Math.sqrt(width*width + height*height) / 2 + a;
+            
+            // 六边形晶格基矢 (未旋转)
+            // v1 = (a, 0)
+            // v2 = (a/2, a*sqrt(3)/2)
+            // 旋转后应用旋转矩阵
+            
+            const cos = Math.cos(theta);
+            const sin = Math.sin(theta);
+            
+            // 基矢 1
+            const v1x0 = a; 
+            const v1y0 = 0;
+            const v1x = v1x0 * cos - v1y0 * sin;
+            const v1y = v1x0 * sin + v1y0 * cos;
+            
+            // 基矢 2
+            const v2x0 = a * 0.5;
+            const v2y0 = a * Math.sqrt(3) / 2;
+            const v2x = v2x0 * cos - v2y0 * sin;
+            const v2y = v2x0 * sin + v2y0 * cos;
+
+            // 估算循环范围
+            // 这是一个简单的暴力生成，对于可视化足够了
+            const range = Math.ceil(maxDist / (a * 0.8)); 
+
+            for (let i = -range; i <= range; i++) {
+                for (let j = -range; j <= range; j++) {
+                    const px = i * v1x + j * v2x;
+                    const py = i * v1y + j * v2y;
+                    
+                    // 只保留画布内的点 (稍微放宽一点边界以免边缘截断)
+                    if (px*px + py*py < maxDist*maxDist) {
+                        points.push({x: centerX + px, y: centerY + py});
+                    }
+                }
+            }
+            return points;
+        }
+
+        function draw() {
+            // 清空画布
+            ctx.clearRect(0, 0, width, height);
+            
+            let theta = parseFloat(angleInput.value);
+            let a1 = parseFloat(a1Input.value);
+            let a2 = parseFloat(a2Input.value);
+
+            // 鲁棒性检查：如果有非法输入，使用默认值
+            if (isNaN(theta)) theta = 0;
+            if (isNaN(a1) || a1 <= 0) a1 = 10;
+            if (isNaN(a2) || a2 <= 0) a2 = 10;
+            
+            angleVal.textContent = theta.toFixed(2);
+            
+            let mode = 'hex';
+            for(const input of modeInputs) {
+                if(input.checked) mode = input.value;
+            }
+
+            // 绘制底层 (Layer 1) - 固定，蓝色
+            // 旋转 0 度
+            const points1 = generateLatticePoints(a1, 0);
+            
+            if (mode === 'hex') {
+                const r1 = a1 / Math.sqrt(3);
+                points1.forEach(p => drawHexagon(p.x, p.y, r1, 'rgba(59, 130, 246, 0.6)', 1.5));
+            } else {
+                points1.forEach(p => drawDot(p.x, p.y, 2, 'rgba(59, 130, 246, 0.8)'));
+            }
+
+            // 绘制顶层 (Layer 2) - 旋转 theta，红色
+            const points2 = generateLatticePoints(a2, theta);
+            
+            if (mode === 'hex') {
+                const r2 = a2 / Math.sqrt(3);
+                points2.forEach(p => drawHexagon(p.x, p.y, r2, 'rgba(239, 68, 68, 0.6)', 1.5));
+            } else {
+                points2.forEach(p => drawDot(p.x, p.y, 2, 'rgba(239, 68, 68, 0.8)'));
+            }
+
+            // --- 计算并绘制摩尔晶格向量 ---
+            
+            // 1. 获取两层的倒格子基矢
+            const rb1 = getReciprocalBasis(a1, 0);
+            const rb2 = getReciprocalBasis(a2, theta);
+
+            // 2. 寻找最短的差值波矢 (Moiré Wavevector)
+            // 我们固定底层的一个基矢 b1，去寻找顶层倒格子中离它最近的点
+            // 顶层的6个第一布里渊区顶点(或者说倒格子基矢及其组合)
+            // 候选者: ±b'1, ±b'2, ±(b'2-b'1) [这是六边形的6个顶点]
+            
+            const candidates = [
+                {x: rb2.b1.x, y: rb2.b1.y},
+                {x: rb2.b2.x, y: rb2.b2.y},
+                {x: rb2.b2.x - rb2.b1.x, y: rb2.b2.y - rb2.b1.y},
+                {x: -rb2.b1.x, y: -rb2.b1.y},
+                {x: -rb2.b2.x, y: -rb2.b2.y},
+                {x: -rb2.b2.x + rb2.b1.x, y: -rb2.b2.y + rb2.b1.y}
+            ];
+
+            let minK = Infinity;
+            let bestKx = 0;
+            let bestKy = 0;
+
+            // 目标：底层的 b1
+            const targetX = rb1.b1.x;
+            const targetY = rb1.b1.y;
+
+            for (let cand of candidates) {
+                const kx = targetX - cand.x;
+                const ky = targetY - cand.y;
+                const kLen = Math.sqrt(kx*kx + ky*ky);
+                
+                if (kLen < minK) {
+                    minK = kLen;
+                    bestKx = kx;
+                    bestKy = ky;
+                }
+            }
+
+            // 3. 计算摩尔实空间基矢
+            // 摩尔波矢 k_moire = bestK
+            // 摩尔周期 lambda = 2pi / |k_moire| ? 不完全是，对于六边形，
+            // 两个波矢差构成的也是六边形倒格子。
+            // 简单的做法：取倒数并旋转90度得到实空间方向（对于2D正交情况），
+            // 对于六边形，我们直接构建摩尔倒格子矩阵，然后求逆。
+            
+            // 假设 bestK 是摩尔倒格子的一个基矢 mb1
+            // 根据六边形对称性，另一个基矢 mb2 应该是 mb1 旋转 60 度
+            const mb1x = bestKx;
+            const mb1y = bestKy;
+            
+            // 旋转 60 度得到 mb2 (注意倒格子也是六边形)
+            const cos60 = 0.5;
+            const sin60 = Math.sqrt(3) / 2;
+            const mb2x = mb1x * cos60 - mb1y * sin60;
+            const mb2y = mb1x * sin60 + mb1y * cos60;
+
+            const mArea = mb1x * mb2y - mb1y * mb2x;
+            
+            let moirePeriod = 0;
+            let mr1 = {x: 0, y: 0};
+            let mr2 = {x: 0, y: 0};
+            let isValid = false;
+
+            // 阈值判断：如果 minK 非常小，说明周期无穷大
+            if (minK < 1e-6) {
+                 moirePeriod = Infinity;
+            } else if (Math.abs(mArea) > 1e-10) {
+                const mFactor = 2 * Math.PI / mArea;
+                
+                // 求逆得到实空间基矢
+                // mr1 垂直于 mb2
+                mr1 = {
+                    x: mFactor * mb2y,
+                    y: mFactor * (-mb2x)
+                };
+                
+                // mr2 垂直于 mb1 (注意负号以维持手性)
+                mr2 = {
+                    x: mFactor * (-mb1y),
+                    y: mFactor * mb1x
+                };
+                
+                moirePeriod = Math.sqrt(mr1.x*mr1.x + mr1.y*mr1.y);
+                isValid = true;
+            }
+
+            // 更新显示
+            if (moirePeriod === Infinity || moirePeriod > 10000) {
+                moirePeriodDisplay.textContent = "∞ (重合)";
+                isValid = false;
+            } else {
+                moirePeriodDisplay.textContent = moirePeriod.toFixed(2);
+            }
+
+            // 绘制摩尔晶格单元
+            if (isValid && moirePeriod < Math.max(width, height) * 2) {
+                
+                // 绘制基矢 1
+                // drawLine(centerX, centerY, centerX + mr1.x, centerY + mr1.y, 'black', 3);
+                
+                // 绘制六边形框
+                // 顶点：mr1, mr1+mr2, mr2, ... 
+                // 由于我们是构造出来的对称六边形，直接画正六边形即可
+                // 中心在 centerX, centerY
+                // 顶点距离中心距离？
+                // 对于六边形晶格，基矢长度 a_m 就是晶格常数
+                // 顶点到中心的距离也是 a_m (如果中心是一个格点)
+                // 或者 a_m / sqrt(3) (如果中心是孔位)
+                // 观察摩尔纹，通常中心是 AA 堆叠点（最亮或最暗），周围 6 个也是 AA 点。
+                // 所以顶点就是 mr1, -mr2, ... 组成的六边形
+                
+                ctx.beginPath();
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([8, 4]); 
+
+                // 生成6个顶点
+                const vertices = [];
+                // 从 mr1 开始，每次旋转 60 度
+                let vx = mr1.x;
+                let vy = mr1.y;
+                
+                for(let i=0; i<6; i++) {
+                    vertices.push({x: centerX + vx, y: centerY + vy});
+                    // Rotate 60 deg
+                    const nvx = vx * cos60 - vy * sin60;
+                    const nvy = vx * sin60 + vy * cos60;
+                    vx = nvx;
+                    vy = nvy;
+                }
+
+                ctx.moveTo(vertices[0].x, vertices[0].y);
+                for(let i=1; i<6; i++) {
+                    ctx.lineTo(vertices[i].x, vertices[i].y);
+                }
+                ctx.closePath();
+                ctx.stroke();
+                
+                // 标出顶点
+                vertices.forEach(v => drawDot(v.x, v.y, 4, 'black'));
+
+                ctx.setLineDash([]); 
+            }
+        }
+
+        // 动画控制
+        const animBtn = document.getElementById('animBtn');
+        let isAnimating = false;
+        let animationId = null;
+
+        function updateAngle() {
+            if (!isAnimating) return;
+            
+            let currentAngle = parseFloat(angleInput.value);
+            // 每次增加 0.2 度
+            currentAngle = (currentAngle + 0.2);
+            if (currentAngle > 360) currentAngle = 0;
+            
+            angleInput.value = currentAngle;
+            draw();
+            
+            animationId = requestAnimationFrame(updateAngle);
+        }
+
+        animBtn.addEventListener('click', () => {
+            isAnimating = !isAnimating;
+            if (isAnimating) {
+                animBtn.textContent = '停止旋转';
+                animBtn.style.backgroundColor = '#ef4444'; // 红色表示停止
+                updateAngle();
+            } else {
+                animBtn.textContent = '开始旋转';
+                animBtn.style.backgroundColor = '#3b82f6'; // 蓝色表示开始
+                cancelAnimationFrame(animationId);
+            }
+        });
+
+        // 事件监听
+        angleInput.addEventListener('input', draw);
+        a1Input.addEventListener('input', draw);
+        a2Input.addEventListener('input', draw);
+        for(const input of modeInputs) {
+            input.addEventListener('change', draw);
+        }
+
+        // 初始绘制
+        draw();
+
+    </script>
+</body>
+</html>
